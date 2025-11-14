@@ -19,11 +19,10 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stdint.h>
-#include <stdio.h>
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <stdint.h>
 
 /* USER CODE END Includes */
 
@@ -34,6 +33,22 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define DISPLAY_CALLBACK_TIME (uint8_t)300;
+
+#define MAX_BUFFER_SIZE 30
+
+#define RST_LEN 5
+#define OK_LEN 4
+
+#define PARSER_INIT 0
+
+#define PARSER_IDLE 1
+#define PARSER_CHECK_RST 2
+#define PARSER_RST 3
+#define PARSER_CHECK_IDLE 4
+
+#define UART_COMM_NON_DISPLAY 0
+#define UART_COMM_DISPLAY 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -43,6 +58,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
@@ -55,19 +72,136 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+void command_parser_fsm();
+void uart_communiation_fsm();
 
+int IsCommand(const char* cmd, uint8_t cmd_len);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+const char* rst_cmd = "!RST#";
+const char* ok_cmd = "!OK#";
+
+uint8_t display_counter = DISPLAY_CALLBACK_TIME;
+uint8_t display_flag = 0;
+
+uint8_t command_parser_state = PARSER_INIT;
+uint8_t state_change_flag = 0;
+uint8_t uart_comm_state = UART_COMM_DISPLAY;
+
 uint8_t temp = 0;
+uint8_t buffer[MAX_BUFFER_SIZE];
+int8_t index_buffer = 0;
+uint8_t buffer_flag = 0;
+
+uint32_t ADC_value = 0;
+char display_buffer[10];
 
 void HAL_UART_RxCpltCallback ( UART_HandleTypeDef * huart ) {
 	if (huart -> Instance == USART2) {
-		HAL_UART_Transmit(&huart2, &temp, 1, 50) ;
-	 	HAL_UART_Receive_IT(&huart2, &temp, 1) ;
+		if(index_buffer == 30) index_buffer = 0;
+
+		buffer_flag = 1;
+
+		if(temp == 8){
+			index_buffer--;
+			if(index_buffer < 0) index_buffer = MAX_BUFFER_SIZE - 1;
+		}
+		else{
+			buffer[index_buffer++] = temp;
+		}
+
+		HAL_UART_Transmit(&huart2, &temp, 1, 1000);
+		HAL_UART_Receive_IT(&huart2, &temp, 1);
 	}
+}
+
+void command_parser_fsm(){
+	int last = index_buffer - 1;
+	if(last < 0) last += MAX_BUFFER_SIZE;
+	switch(command_parser_state){
+	case PARSER_INIT:
+		display_counter = DISPLAY_CALLBACK_TIME;
+		display_flag = 0;
+
+		command_parser_state = PARSER_IDLE;
+		state_change_flag = 0;
+		uart_comm_state = UART_COMM_NON_DISPLAY;
+
+		temp = 0;
+		buffer_flag = 0;
+		index_buffer = 0;
+
+		ADC_value = 0;
+
+		break;
+
+	case PARSER_IDLE:
+		if(buffer[last] == '#' && IsCommand(rst_cmd, RST_LEN)){
+			state_change_flag = 1;
+			command_parser_state = PARSER_RST;
+		}
+		break;
+
+	case PARSER_RST:
+		if(buffer[last] == '#' && IsCommand(ok_cmd, OK_LEN)){
+			command_parser_state = PARSER_IDLE;
+			state_change_flag = 1;
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void uart_communiation_fsm(){
+	switch(uart_comm_state){
+	case UART_COMM_NON_DISPLAY:
+		if(state_change_flag == 1){
+			state_change_flag = 0;
+
+			uart_comm_state = UART_COMM_DISPLAY;
+			display_flag = 1;
+		}
+		break;
+
+	case UART_COMM_DISPLAY:
+		if(display_flag == 1){
+			display_flag = 0;
+			display_counter = DISPLAY_CALLBACK_TIME;
+
+			ADC_value = HAL_ADC_GetValue(&hadc1);
+
+			int len = sprintf(display_buffer, "\n!%d#", (int)ADC_value);
+			HAL_UART_Transmit(&huart2, (void*)display_buffer, len, 1000);
+		}
+
+		if(state_change_flag == 1){
+			uart_comm_state = UART_COMM_NON_DISPLAY;
+			state_change_flag = 0;
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+int IsCommand(const char* cmd, uint8_t cmd_len){
+	for(int i = 0; i < cmd_len; ++i){
+		int index = index_buffer - i - 1;
+		if(index < 0) index = MAX_BUFFER_SIZE + index;
+
+		if(buffer[index] != cmd[cmd_len - i]){
+			return 0;
+		}
+	}
+	return 1;
 }
 /* USER CODE END 0 */
 
@@ -101,27 +235,28 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_ADC_Start(&hadc1);
   HAL_UART_Receive_IT(&huart2, &temp, 1);
+
+  HAL_TIM_Base_Start_IT(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint32_t ADC_value = 0;
-  char str[50] = "3300";
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_GPIO_TogglePin(BLINKING_LED_GPIO_Port, BLINKING_LED_Pin);
+	    if(buffer_flag == 1){
+//	        command_parser_fsm();
+	        buffer_flag = 0;
+	    }
 
-	  ADC_value = HAL_ADC_GetValue(&hadc1);
-	  int len = sprintf(str, "%d\n", (int)ADC_value);
-	  HAL_UART_Transmit(&huart2, (void*)str, len, 1000);
-	  HAL_Delay(500);
+	    uart_communiation_fsm();
   }
   /* USER CODE END 3 */
 }
@@ -214,6 +349,51 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 9;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 7999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -271,7 +451,16 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_TIM_PeriodElapsedCallBack(TIM_HandleTypeDef *htim){
+	if(htim->Instance == TIM2){
+		if(display_counter > 0){
+			--display_counter;
+			if(display_counter <= 0){
+				display_flag = 1;
+			}
+		}
+	}
+}
 /* USER CODE END 4 */
 
 /**
