@@ -103,13 +103,14 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_ADC_Start(&hadc1);
   HAL_UART_Receive_IT(&huart2, &temp, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t ADC_value = 0;
-  char str[4] = {};
+  char str[50] = "3300";
   while (1)
   {
     /* USER CODE END WHILE */
@@ -118,8 +119,8 @@ int main(void)
 	  HAL_GPIO_TogglePin(BLINKING_LED_GPIO_Port, BLINKING_LED_Pin);
 
 	  ADC_value = HAL_ADC_GetValue(&hadc1);
-	  HAL_UART_Transmit(&huart2, (void*)str, sprintf(str, "%d\n", (int)ADC_value), 1000);
-
+	  int len = sprintf(str, "%d\n", (int)ADC_value);
+	  HAL_UART_Transmit(&huart2, (void*)str, len, 1000);
 	  HAL_Delay(500);
   }
   /* USER CODE END 3 */
