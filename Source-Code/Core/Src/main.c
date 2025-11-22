@@ -33,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DISPLAY_CALLBACK_TIME (uint8_t)300;
+#define DISPLAY_CALLBACK_TIME (int16_t)300
 
 #define MAX_BUFFER_SIZE 30
 
@@ -86,12 +86,12 @@ int IsCommand(const char* cmd, uint8_t cmd_len);
 const char* rst_cmd = "!RST#";
 const char* ok_cmd = "!OK#";
 
-uint8_t display_counter = DISPLAY_CALLBACK_TIME;
+uint16_t display_counter = DISPLAY_CALLBACK_TIME;
 uint8_t display_flag = 0;
 
 uint8_t command_parser_state = PARSER_INIT;
 uint8_t state_change_flag = 0;
-uint8_t uart_comm_state = UART_COMM_DISPLAY;
+uint8_t uart_comm_state = UART_COMM_NON_DISPLAY;
 
 uint8_t temp = 0;
 uint8_t buffer[MAX_BUFFER_SIZE];
@@ -132,10 +132,6 @@ void command_parser_fsm(){
 		state_change_flag = 0;
 		uart_comm_state = UART_COMM_NON_DISPLAY;
 
-		temp = 0;
-		buffer_flag = 0;
-		index_buffer = 0;
-
 		ADC_value = 0;
 
 		break;
@@ -166,7 +162,15 @@ void uart_communiation_fsm(){
 			state_change_flag = 0;
 
 			uart_comm_state = UART_COMM_DISPLAY;
-			display_flag = 1;
+
+			//Displayed once for the state change then start counting
+			display_flag = 0;
+			display_counter = DISPLAY_CALLBACK_TIME;
+
+			ADC_value = HAL_ADC_GetValue(&hadc1);
+
+			int len = sprintf(display_buffer, "\r\n!ADC=%d#", (int)ADC_value);
+			HAL_UART_Transmit(&huart2, (void*)display_buffer, len, 1000);
 		}
 		break;
 
@@ -177,7 +181,7 @@ void uart_communiation_fsm(){
 
 			ADC_value = HAL_ADC_GetValue(&hadc1);
 
-			int len = sprintf(display_buffer, "\n!%d#", (int)ADC_value);
+			int len = sprintf(display_buffer, "\r\n!ADC=%d#", (int)ADC_value);
 			HAL_UART_Transmit(&huart2, (void*)display_buffer, len, 1000);
 		}
 
@@ -197,7 +201,7 @@ int IsCommand(const char* cmd, uint8_t cmd_len){
 		int index = index_buffer - i - 1;
 		if(index < 0) index = MAX_BUFFER_SIZE + index;
 
-		if(buffer[index] != cmd[cmd_len - i]){
+		if(buffer[index] != cmd[cmd_len - i - 1]){
 			return 0;
 		}
 	}
@@ -252,7 +256,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	    if(buffer_flag == 1){
-//	        command_parser_fsm();
+	        command_parser_fsm();
 	        buffer_flag = 0;
 	    }
 
@@ -451,7 +455,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallBack(TIM_HandleTypeDef *htim){
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM2){
 		if(display_counter > 0){
 			--display_counter;
