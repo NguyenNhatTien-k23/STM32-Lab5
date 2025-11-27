@@ -36,10 +36,6 @@
 #define DISPLAY_CALLBACK_TIME (int16_t)300
 
 #define MAX_BUFFER_SIZE 30
-
-#define RST_LEN 5
-#define OK_LEN 4
-
 #define PARSER_INIT 0
 
 #define PARSER_IDLE 1
@@ -171,9 +167,16 @@ void command_parser_fsm() {
             }
         }
 
-        // 3) No command can match → return to IDLE
+        // 3) No command can match -> return to IDLE
         if(rst_idx == 0 && ok_idx == 0) {
             command_parser_state = PARSER_IDLE;
+        }
+
+        // 4) Don't change if start another command
+        if(c == '!'){
+        	rst_idx = 1;
+            ok_idx  = 1;
+            command_parser_state = PARSER_CHECK_COMMAND;
         }
 
         break;
