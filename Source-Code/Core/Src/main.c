@@ -43,9 +43,7 @@
 #define PARSER_INIT 0
 
 #define PARSER_IDLE 1
-#define PARSER_CHECK_RST 2
-#define PARSER_RST 3
-#define PARSER_CHECK_IDLE 4
+#define PARSER_CHECK_COMMAND 2
 
 #define UART_COMM_NON_DISPLAY 0
 #define UART_COMM_DISPLAY 1
@@ -85,6 +83,8 @@ int IsCommand(const char* cmd, uint8_t cmd_len);
 
 const char* rst_cmd = "!RST#";
 const char* ok_cmd = "!OK#";
+uint8_t ok_idx = 0;
+uint8_t rst_idx = 0;
 
 uint16_t display_counter = DISPLAY_CALLBACK_TIME;
 uint8_t display_flag = 0;
@@ -120,40 +120,66 @@ void HAL_UART_RxCpltCallback ( UART_HandleTypeDef * huart ) {
 	}
 }
 
-void command_parser_fsm(){
+void command_parser_fsm() {
 	int last = index_buffer - 1;
-	if(last < 0) last += MAX_BUFFER_SIZE;
-	switch(command_parser_state){
-	case PARSER_INIT:
-		display_counter = DISPLAY_CALLBACK_TIME;
-		display_flag = 0;
+	if(last < 0) last = MAX_BUFFER_SIZE - 1;
+	uint8_t c = buffer[last];
 
-		command_parser_state = PARSER_IDLE;
-		state_change_flag = 0;
-		uart_comm_state = UART_COMM_NON_DISPLAY;
+    switch(command_parser_state) {
 
-		ADC_value = 0;
+    case PARSER_INIT:
+        command_parser_state = PARSER_IDLE;
+        rst_idx = 0;
+        ok_idx  = 0;
+        break;
 
-		break;
 
-	case PARSER_IDLE:
-		if(buffer[last] == '#' && IsCommand(rst_cmd, RST_LEN)){
-			state_change_flag = 1;
-			command_parser_state = PARSER_RST;
-		}
-		break;
+    case PARSER_IDLE:
+        if(c == '!') {
+            // Start matching both commands
+            rst_idx = 1;
+            ok_idx  = 1;
+            command_parser_state = PARSER_CHECK_COMMAND;
+        }
+        break;
 
-	case PARSER_RST:
-		if(buffer[last] == '#' && IsCommand(ok_cmd, OK_LEN)){
-			command_parser_state = PARSER_IDLE;
-			state_change_flag = 1;
-		}
-		break;
 
-	default:
-		break;
-	}
+    case PARSER_CHECK_COMMAND:
+        // 1) Try match RST
+        if(rst_idx > 0) {
+            if(c == rst_cmd[rst_idx]) {
+                rst_idx++;
+                if(c == '#') {
+                    state_change_flag = 1;
+                    command_parser_state = PARSER_IDLE;
+                }
+            } else {
+                rst_idx = 0;
+            }
+        }
+
+        // 2) Try match OK
+        if(ok_idx > 0) {
+            if(c == ok_cmd[ok_idx]) {
+                ok_idx++;
+                if(c == '#') {
+                    state_change_flag = 1;
+                    command_parser_state = PARSER_IDLE;
+                }
+            } else {
+                ok_idx = 0;
+            }
+        }
+
+        // 3) No command can match → return to IDLE
+        if(rst_idx == 0 && ok_idx == 0) {
+            command_parser_state = PARSER_IDLE;
+        }
+
+        break;
+    }
 }
+
 
 void uart_communiation_fsm(){
 	switch(uart_comm_state){
