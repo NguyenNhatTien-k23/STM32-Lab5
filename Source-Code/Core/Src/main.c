@@ -221,18 +221,6 @@ void uart_communiation_fsm(){
 		break;
 	}
 }
-
-int IsCommand(const char* cmd, uint8_t cmd_len){
-	for(int i = 0; i < cmd_len; ++i){
-		int index = index_buffer - i - 1;
-		if(index < 0) index = MAX_BUFFER_SIZE + index;
-
-		if(buffer[index] != cmd[cmd_len - i - 1]){
-			return 0;
-		}
-	}
-	return 1;
-}
 /* USER CODE END 0 */
 
 /**
