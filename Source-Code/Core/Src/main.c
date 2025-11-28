@@ -101,6 +101,9 @@ uint8_t buffer_flag = 0;
 uint32_t ADC_value = 0;
 char display_buffer[10];
 
+int blinking_timer = 50;
+int blinking_flag = 0;
+
 void HAL_UART_RxCpltCallback ( UART_HandleTypeDef * huart ) {
 	if (huart -> Instance == USART2) {
 		if(index_buffer == 30) index_buffer = 0;
@@ -179,7 +182,7 @@ void uart_communiation_fsm(){
 			display_flag = 0;
 			display_counter = DISPLAY_CALLBACK_TIME;
 
-			ADC_value = HAL_ADC_GetValue(&hadc1);
+//			ADC_value = HAL_ADC_GetValue(&hadc1);
 
 			int len = sprintf(display_buffer, "\r\n!ADC=%d#", (int)ADC_value);
 			HAL_UART_Transmit(&huart2, (void*)display_buffer, len, 1000);
@@ -191,7 +194,7 @@ void uart_communiation_fsm(){
 		}
 		break;
 
-	default:
+default:
 		break;
 	}
 }
@@ -261,6 +264,12 @@ int main(void)
 	    }
 
 	    uart_communiation_fsm();
+
+	    if(blinking_flag == 1){
+	    	blinking_flag = 0;
+	    	HAL_GPIO_TogglePin(GPIOA, BLINKING_LED_Pin);
+	    	blinking_timer = 50;
+	    }
   }
   /* USER CODE END 3 */
 }
@@ -461,6 +470,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 			--display_counter;
 			if(display_counter <= 0){
 				display_flag = 1;
+			}
+		}
+
+		if(blinking_timer > 0){
+			--blinking_timer;
+			if(blinking_timer <= 0){
+				blinking_flag = 1;
 			}
 		}
 	}
